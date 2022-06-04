@@ -8,9 +8,7 @@ public class SyntaxTree : ISyntaxTree
     }
 
     public IPayload? Payload { get; set; }
-
     public ISecrets? Secrets { get; set; }
-
     public IEnumerable<IStatement> Statements { get; set; }
 }
 
@@ -20,9 +18,11 @@ public class SelectQuery : ISelectQuery
     {
         Selectable = selectable;
         Selection = selection;
-        Binds = new IBind[] { };
-        Includes = new IInclude[] { };
-        Joins = new IJoin[] { };
+        Binds = Enumerable.Empty<IBind>();
+        Includes = Enumerable.Empty<IInclude>();
+        Joins = Enumerable.Empty<IJoin>();
+        Orderings = Enumerable.Empty<IOrdering>();
+        Top = new All();
     }
 
     public ISelectable Selectable { get; set; }
@@ -32,66 +32,34 @@ public class SelectQuery : ISelectQuery
     public IEnumerable<IJoin> Joins { get; set; }
     public IPredicate? Predicate { get; set; }
     public IAggrupation? Aggrupation { get; set; }
-    public IOrdering? Ordering { get; set; }
+    public IEnumerable<IOrdering> Orderings { get; set; }
+    public ITop Top { get; set; }
+    public ILimit? Limit { get; set; }
+    public IOffset? Offset { get; set; }
+    public IPagination? Pagination { get; set; }
 }
 
-public record TupleSelection : ITupleSelection
-{
-    public TupleSelection(IEnumerable<ITupleSelectionAtom> atoms)
-    {
-        Atoms = atoms;
-    }
+public record TupleSelection(IEnumerable<ITupleSelectionAtom> Atoms) : ITupleSelection;
+public record TupleSelectionExpression(IExpression Expression, INamePath? OutputPath = null) : ITupleSelectionExpression;
+public record TupleSelectionAssignment(INamePath OutputPath, IExpression Expression) : ITupleSelectionAssignment;
 
-    public IEnumerable<ITupleSelectionAtom> Atoms { get; set; }
-}
+public record SourceReference(INamePath Path) : ISourceReference;
 
-public record TupleSelectionExpression : ITupleSelectionExpression
-{
-    public TupleSelectionExpression(IExpression expression)
-    {
-        Expression = expression;
-    }
+public record NamePath(IEnumerable<INameItem> Sequence) : INamePath;
+public record NameItem(string Identifier) : INameItem;
 
-    public IExpression Expression { get; set; }
+public record Wildcard(int Id) : IWildcard;
 
-    public IObjectPath? OutputPath { get; set; }
-}
+public record Limit(int Quantity) : ILimit;
+public record Offset(int Quantity) : IOffset;
+public record Pagination(int Page, int Size) : IPagination;
 
-public record TupleSelectionAssignment : ITupleSelectionAssignment
-{
-    public TupleSelectionAssignment(IObjectPath outputPath, IExpression expression)
-    {
-        OutputPath = outputPath;
-        Expression = expression;
-    }
+public record All : IAll;
+public record First : IFirst;
+public record Last : ILast;
+public record One : IOne;
+public record AtPosition(int Position) : IAtPosition;
+public record TopByQuantity(int Quantity) : ITopByQuantity;
+public record TopByPercentage(double Percentage) : ITopByPercentage;
 
-    public IObjectPath OutputPath { get; set; }
-
-    public IExpression Expression { get; set; }
-}
-
-public record SourceReference : ISourceReference
-{
-    public SourceReference(IObjectPath objectPath)
-    {
-        ObjectPath = objectPath;
-    }
-
-    public IObjectPath ObjectPath { get; set; }
-}
-
-public record ObjectPath : IObjectPath
-{
-    public ObjectPath(IObjectPathValue value)
-    {
-        Value = value;
-    }
-
-    public IObjectPathValue Value { get; set; }
-
-    public IObjectPath? Child { get; set; }
-}
-
-public record ObjectIdentifier(string Name) : IObjectIdentifier;
-
-public record ObjectWildcard(int Level) : IObjectWildcard;
+public record Ordering(IExpression Expression, OrderDirection Direction) : IOrdering;

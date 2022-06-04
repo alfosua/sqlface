@@ -6,6 +6,7 @@ using SqlFace.Core.Schemas;
 using SqlFace.Parsing.SyntaxTrees;
 using System.Collections;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -208,8 +209,7 @@ public class SelectQueryVisitor : ISelectQueryVisitor
     public ISourceReference SourceReference => _selectQuery.Selectable as ISourceReference
         ?? throw new NotImplementedException("Source reference is not supported");
 
-    public string SourceName => (SourceReference.ObjectPath.Value as IObjectIdentifier)?.Name
-        ?? throw new NotImplementedException("Object path value is not supported");
+    public string SourceName => SourceReference.Path.GetPathString();
 
     public ITupleSelection TupleSelection => _selectQuery.Selection as ITupleSelection
         ?? throw new NotImplementedException("Selection is not supported");
@@ -240,34 +240,104 @@ public class SelectQueryPipeFactory : ISelectQueryPipeFactory
         return pipe;
     }
 
+    private string Pascalize(string x) => x.Substring(0, 1).ToUpper() + x.Substring(1);
+
     private async Task<Func<object, object>> CreatePipeInternalAsync(ISourceVisitor sourceVisitor, ISelectQueryVisitor selectQueryVisitor)
     {
         var sourceTypeName = sourceVisitor.SourceClrType.GetCSharpFullName();
 
         var columns = new PropertyProjectionAnalysis(sourceVisitor, selectQueryVisitor);
-        
+
+        var topDelimitationCode = selectQueryVisitor.Value.Top switch
+        {
+            IAll => string.Empty,
+            IFirst => ".FirstOrDefault()",
+            ILast => ".LastOrDefault()",
+            IOne => ".SingleOrDefault()",
+            ITopByQuantity top => $".Take({top.Quantity})",
+            ITopByPercentage => throw new NotImplementedException("Top by percentage is not supported yet"),
+            _ => throw new NotImplementedException("Top is not supported")
+        };
+
+        Func<string, string> translate = x =>
+        {
+            var targetOutputName = Pascalize(x);
+            return columns.FirstOrDefault(x => x.OutputName == targetOutputName)?.OutputName ?? x;
+        };
+
+        var orderingsCode = selectQueryVisitor.Value.Orderings
+            .Select(x => x.Expression switch
+            {
+                INamePath path => path.Sequence switch
+                {
+                    INameItem oi => new { Path = oi.Identifier, x.Direction },
+                    _ => throw new NotImplementedException("Object path not supported"),
+                },
+                _ => throw new NotImplementedException("Expression not supported"),
+            })
+            .Select(x => x.Direction switch
+            {
+                OrderDirection.Ascending => new StringBuilder().AppendFormat(".OrderBy(x => x.{0})", translate(x.Path)),
+                OrderDirection.Descending => new StringBuilder().AppendFormat(".OrderByDescending(x => x.{0})", translate(x.Path)),
+                _ => throw new NotImplementedException("Order direction not supported"),
+            })
+            .Aggregate(new StringBuilder(), (accum, next) => accum.Append(next));
+
+        var offsetCode = selectQueryVisitor.Value.Offset switch
+        {
+            null => string.Empty,
+            var offset => $".Skip({offset.Quantity})",
+        };
+
+        var limitationCode = selectQueryVisitor.Value.Limit switch
+        {
+            null => string.Empty,
+            var limit => $".Take({limit.Quantity})",
+        };
+
+        var paginationCode = selectQueryVisitor.Value.Pagination switch
+        {
+            null => string.Empty,
+            { Page: < 1 } => throw new NotImplementedException("Page index must be a number greather than 1"),
+            { Size: < 1 } => throw new NotImplementedException("Page size must be a number greather than 1"),
+            var pagination => $".Skip({(pagination.Page - 1) * pagination.Size}).Take({pagination.Size})",
+        };
+
         var propsDefCode = new StringBuilder()
             .Append("\t")
-            .AppendJoin("\n\t", columns.Select(x => $"public {x.TypeName} {x.OutputName} {{ get; set; }}"));
+            .AppendJoin("\n\t", columns.Select(x => $"public {x.CSharpTypeName} {x.OutputName} {{ get; set; }}"));
 
         var targetTypeName = new StringBuilder().AppendJoin("", sourceTypeName, Guid.NewGuid().ToString("n"));
+
+        var resultTypeName = selectQueryVisitor.Value.Top switch
+        {
+            IFirst or ILast or IOne => targetTypeName,
+            _ => new StringBuilder().AppendFormat("IEnumerable<{0}>", targetTypeName),
+        };
 
         var classDefCode = new StringBuilder()
             .AppendFormat("public class {0}\n{{\n{1}\n}}\n", targetTypeName, propsDefCode);
 
         var funcTypeDefCode = new StringBuilder()
-            .AppendFormat("Func<IEnumerable<{0}>, IEnumerable<{1}>>", sourceTypeName, targetTypeName);
+            .AppendFormat("Func<IEnumerable<{0}>, {1}>", sourceTypeName, resultTypeName);
 
         var propsAssignmentsCode = new StringBuilder()
             .Append("\t")
-            .AppendJoin("\n\t", columns.Select(x => $"{x.OutputName} = x.{x.TargetName},"));
+            .AppendJoin("\n\t", columns.Select(x => $"{x.OutputName} = {x.ExpressionCode},"));
+
+        var selectionCode = new StringBuilder().AppendFormat(".Select(x => new {0}\n{{\n{1}\n}})",
+            targetTypeName,
+            propsAssignmentsCode);
 
         var functionDefCode = new StringBuilder()
-            .AppendFormat(
-                "{0} pipe = (source) => source.Select(x => new {1}\n{{\n{2}\n}});\n",
-                funcTypeDefCode,
-                targetTypeName,
-                propsAssignmentsCode);
+            .AppendFormat("{0} pipe = (source) => source", funcTypeDefCode)
+            .Append(selectionCode)
+            .Append(orderingsCode)
+            .Append(topDelimitationCode)
+            .Append(offsetCode)
+            .Append(limitationCode)
+            .Append(paginationCode)
+            .Append(";\n");
 
         var functionReturnCode = new StringBuilder()
             .AppendFormat("return (source) => pipe(source as IEnumerable<{0}>);", sourceTypeName);
@@ -279,18 +349,18 @@ public class SelectQueryPipeFactory : ISelectQueryPipeFactory
         ScriptOptions options = ScriptOptions.Default
             .WithReferences(new[]
             {
-                    Assembly.Load("System.Reflection"),
-                    Assembly.Load("System.Collections"),
-                    Assembly.Load("System.Linq"),
-                    sourceVisitor.SourceClrType.Assembly,
+                Assembly.Load("System.Reflection"),
+                Assembly.Load("System.Collections"),
+                Assembly.Load("System.Linq"),
+                sourceVisitor.SourceClrType.Assembly,
             })
             .WithImports(new[]
             {
-                    "System",
-                    "System.Reflection",
-                    "System.Collections.Generic",
-                    "System.Linq",
-                    "System.Linq.Expressions",
+                "System",
+                "System.Reflection",
+                "System.Collections.Generic",
+                "System.Linq",
+                "System.Linq.Expressions",
             });
 
         var pipe = await CSharpScript.EvaluateAsync<Func<object, object>>(dynamicSelectPipeCode, options);
@@ -312,8 +382,8 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
 
     public IEnumerator<PropertyProjection> GetEnumerator()
     {
-        var columns = _selectQueryVisitor.TupleSelection.Atoms
-            .SelectMany(x => AnalyzeAtom(x, _sourceProps));
+        var columns = ExtractCommonData(_selectQueryVisitor.Value.Selection)
+            .SelectMany(x => CreateProjectionsFrom(x.OutputPath, x.Expression));
 
         return columns.GetEnumerator();
     }
@@ -323,78 +393,83 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
         return GetEnumerator();
     }
 
-    private IEnumerable<PropertyProjection> AnalyzeAtom(ITupleSelectionAtom atom, IReadOnlyCollection<ISqlFaceObjectProperty> sourceProps)
+    private IEnumerable<(INamePath? OutputPath, IExpression Expression)> ExtractCommonData(ISelection selection) => selection switch
     {
-        var (targetPath, outputPath) = atom switch
+        ITupleSelection ts => ts.Atoms.Select(x => x switch
         {
-            var a when a is ITupleSelectionExpression expr => (MapExpressionToObjectPath(expr.Expression), expr.OutputPath),
-            var a when a is ITupleSelectionAssignment assig => (MapExpressionToObjectPath(assig.Expression), assig.OutputPath),
-            _ => throw new NotImplementedException("Tuple selection atom is not supported"),
+            ITupleSelectionAssignment tsa => (tsa.OutputPath, tsa.Expression),
+            ITupleSelectionExpression tse => (tse.OutputPath, tse.Expression),
+            var ts => throw new NotImplementedException($"Tuple selection atom `{ts.GetType().FullName}` is not supported"),
+        }),
+        
+        IMapSelection ms => throw new NotImplementedException("Map selection is not supported"),
+
+        var s => throw new NotImplementedException($"Selection `{s.GetType().FullName}` is not supported"),
+    };
+
+    private IEnumerable<PropertyProjection> CreateProjectionsFrom(INamePath? outputPath, IExpression expression) => expression switch
+    {
+        IWildcard w => CreateProjectionsByWildcard(outputPath, w),
+        var expr => new[] { CreateProjectionByExpresion(outputPath, expr) },
+    };
+
+    private IEnumerable<PropertyProjection> CreateProjectionsByWildcard(INamePath? outputPath, IWildcard wildcard) => outputPath switch
+    {
+        null => _sourceProps
+            .Select(x => new PropertyProjection(x.Property.PropertyType.GetCSharpFullName(), x.Property.Name, new StringBuilder().AppendFormat("x.{0}", x.Property.Name))),
+
+        _ => throw new NotImplementedException("Output path is not supported yet for wildcarded expansion"),
+    };
+    
+    private PropertyProjection CreateProjectionByExpresion(INamePath? outputPath, IExpression expression)
+    {
+        var outputName = TranslateOutputPathToCSharpCode(outputPath, expression);
+        var expressionCode = TranslateExpressionToCSharpCode(expression);
+        return new PropertyProjection("dynamic", outputName, expressionCode);
+    }
+
+    private string TranslateOutputPathToCSharpCode(INamePath? outputPath, IExpression expression)
+    {
+        return outputPath switch
+        {
+            null => expression switch
+            {
+                INamePath np => np.GetPathString(),
+                _ => $"column{UtilityExtensions.GetRandomHexString(6)}",
+            },
+            var path => path.GetPathString(),
         };
-
-        var targets = ComputeTargets(targetPath);
-
-        var outputNames = ComputeOutputNames(targetPath, outputPath);
-
-        var zip = targets.Zip(outputNames).Select(x => new { Target = x.First, OutputName = x.Second })
-            .Select(x => new PropertyProjection(x.Target.CSharpName, x.OutputName ?? x.Target.CSharpName, x.Target.CSharpTypeName));
-
-        return zip;
     }
 
-    private IEnumerable<PropertyTarget> ComputeTargets(IObjectPath targetPath) => targetPath.Value switch
+    private StringBuilder TranslateExpressionToCSharpCode(IExpression expression) => expression switch
     {
-        var p when p is IObjectWildcard ow => _sourceProps
-            .Select(x => CreatePropertyTargetFrom(x)),
+        INamePath np => _sourceProps
+            .Where(x => x.Identifier.Name == np.GetPathString())
+            .Take(1)
+            .Select(x => new StringBuilder().AppendFormat("x.{0}", x.Identifier.Name))
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException("Reference is out of context"),
 
-        var p when p is IObjectIdentifier oi => _sourceProps
-            .Where(x => x.Identifier.Name == oi.Name)
-            .Select(x => CreatePropertyTargetFrom(x))
-            .Take(1),
-
-        _ => throw new NotImplementedException("Object path value is not supported"),
+        _ => throw new NotImplementedException("Expression is not supported"),
     };
-
-    private IEnumerable<string?> ComputeOutputNames(IObjectPath targetPath, IObjectPath? outputPath) => (targetPath.Value, outputPath?.Value) switch
-    {
-        var (tp, op) when tp is IObjectIdentifier => ComputeOutputNamesWhenTargetIsIdentifier(op),
-        
-        var (tp, op) when tp is IObjectWildcard => ComputeOutputNamesWhenTargetIsWildcard(op),
-        
-        _ => throw new NotImplementedException("Object path value is not supported"),
-    };
-
-    private IEnumerable<string?> ComputeOutputNamesWhenTargetIsIdentifier(IObjectPathValue? objectPathValue) => objectPathValue switch
-    {
-        var p when p is IObjectWildcard or null => new string?[] { null },
-
-        var p when p is IObjectIdentifier oi => new[] { oi.Name },
-
-        _ => throw new NotImplementedException("Object path value for output is not supported"),
-    };
-
-    private IEnumerable<string?> ComputeOutputNamesWhenTargetIsWildcard(IObjectPathValue? objectPathValue) => objectPathValue switch
-    {
-        var p when p is IObjectWildcard or null => _sourceProps.Select(x => (string?)null),
-
-        var p when p is IObjectIdentifier =>
-            throw new NotImplementedException("Object identifier for grouping wildcard in outputs is not supported yet"),
-
-        _ => throw new NotImplementedException("Object path value for output is not supported"),
-    };
-
-    private PropertyTarget CreatePropertyTargetFrom(ISqlFaceObjectProperty prop)
-    {
-        var identifiableName = prop.Identifier.Name;
-        var csharpName = prop.Property.Name;
-        var csharpTypeName = prop.Property.PropertyType.GetCSharpFullName();
-        return new(identifiableName, csharpName, csharpTypeName);
-    }
-
-    private IObjectPath MapExpressionToObjectPath(IExpression expression) =>
-        expression as IObjectPath ?? throw new NotImplementedException("Expression is not supported");
-
-    private record PropertyTarget(string IdentifiableName, string CSharpName, string CSharpTypeName);
 }
 
-public record PropertyProjection(string TargetName, string OutputName, string TypeName);
+public record PropertyProjection(string CSharpTypeName, string OutputName, StringBuilder ExpressionCode);
+
+public static class UtilityExtensions
+{
+    public static string GetPathString(this INamePath path)
+    {
+        return string.Join('.', path.Sequence.Select(x => x.Identifier));
+    }
+
+    public static string GetRandomHexString(int length)
+    {
+        using var rng = RandomNumberGenerator.Create();
+        var bytes = new byte[length];
+
+        rng.GetBytes(bytes);
+
+        return string.Join("", bytes.Select(b => b.ToString("x2")));
+    }
+}

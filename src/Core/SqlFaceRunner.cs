@@ -19,8 +19,7 @@ public class SqlFaceRunner : ISqlFaceRunner
         {
             if (statement is ISelectQuery selectQuery)
             {
-                var sourceName = ((selectQuery.Selectable as ISourceReference)?
-                    .ObjectPath.Value as IObjectIdentifier)?.Name
+                var sourceName = (selectQuery.Selectable as ISourceReference)?.Path.GetPathString()
                     ?? throw new NotImplementedException("Selectable is not supported");
 
                 var query = await linqFactory.CreateFromAsync(selectQuery);

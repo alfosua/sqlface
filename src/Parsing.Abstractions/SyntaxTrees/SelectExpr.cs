@@ -3,81 +3,76 @@
 public interface ISyntaxTree
 {
     IPayload? Payload { get; }
-
     ISecrets? Secrets { get; }
-
-    IEnumerable<IStatement> Statements { get; set; }
+    IEnumerable<IStatement> Statements { get; }
 }
 
-public interface IStatement : ISyntaxElement
-{
-}
+public interface ISyntaxElement { }
+public interface IPayload : ISyntaxElement { }
+public interface ISecrets : ISyntaxElement { }
+public interface IStatement : ISyntaxElement { }
+public interface IExpression : ISyntaxElement { }
 
-public interface IQuery : IStatement
-{
-}
+public interface IVariable : IStatement { }
+public interface IConstant : IStatement { }
+public interface IQuery : IStatement { }
 
-public interface IReference : IExpression
-{
-}
-
-public interface IPayload : ISyntaxElement
-{
-}
-
-public interface ISecrets : ISyntaxElement
-{
-}
-
-public interface IVariable : IStatement
-{
-}
-
-public interface IConstant : IStatement
-{
-}
-
-public interface ISyntaxElement
-{
-}
-
-public interface ILiteral : IExpression
-{
-}
-
+public interface ILiteral : IExpression { }
 public interface ILiteral<T> : ILiteral
 {
+    T Value { get;  }
 }
+public interface IStringLiteral : ILiteral<string> { }
+public interface IBooleanLiteral : ILiteral<bool> { }
+public interface INumberLiteral<T> : ILiteral<T> { }
+public interface IIntegerLiteral<T> : INumberLiteral<int> { }
+public interface IFloatingPointLiteral<T> : INumberLiteral<double> { }
 
-public interface IStringLiteral : ILiteral<string>
+public interface IVariableReference : IExpression
 {
+    INamePath NamePath { get; }
 }
-
-public interface INumberLiteral<T> : ILiteral<T>
-{
-}
-
-public interface ISourceReference : IReference
+public interface ISourceReference : IExpression
     , ISelectable
     , IInsertable
     , IUpdatable
 {
-    IObjectPath ObjectPath { get; }
+    INamePath Path { get; }
 }
 
-public interface ISourceValueReference : IReference
+public interface IWildcard : IExpression
 {
+    int Id { get; }
 }
 
-public interface IVariableReference : IReference
+public interface INamePath : IExpression
 {
+    IEnumerable<INameItem> Sequence { get; }
+}
+public interface INameItem
+{
+    string Identifier { get; }
+}
+
+public interface IExpansionPath : IExpression
+{
+    IEnumerable<INameItem> Sequence { get; }
+}
+public interface IExpansionItem { }
+public interface IExpansionName : IExpansionItem
+{
+    INameItem Name { get; set; }
+}
+public interface IExpansionWildcard : IExpansionItem
+{
+    IWildcard Wildcard { get; set; }
 }
 
 public interface IInsertQuery
 {
-    public IInsertable Insertable { get; set; }
+    IInsertable Insertable { get; }
 
-    public IInsertion Insertion { get; set; }
+    IInsertion Insertion { get; }
 }
 
 public interface IInsertable
@@ -104,12 +99,12 @@ public interface IUpdateQuery : IQuery
     , IMutable
     , IUpdatable
 {
-    public IUpdatable Updatable { get; set; }
+    IUpdatable Updatable { get; }
 }
 
 public interface IMutable
 {
-    public IMutation Mutation { get; set; }
+    IMutation Mutation { get; }
 }
 
 public interface IUpdatable
@@ -138,46 +133,104 @@ public interface IParametizedDeleteQuery : IDeleteQuery
 
 public interface ISelectQuery : IQuery
     , ISelectable
+    , ITopable
     , IBindingInAble
     , IIncludingInAble
     , IJoiningInAble
     , IPredicable
     , IAggrupable
+    , ILimitable
+    , IOffsettable
+    , IPageable
     , IOrderable
 {
-    public ISelectable Selectable { get; set; }
+    ISelectable Selectable { get; }
 
-    public ISelection Selection { get; set; }
+    ISelection Selection { get; }
 }
 
 public interface IIncludingInAble
 {
-    public IEnumerable<IInclude> Includes { get; set; }
+    IEnumerable<IInclude> Includes { get; }
 }
 
 public interface IJoiningInAble
 {
-    public IEnumerable<IJoin> Joins { get; set; }
+    IEnumerable<IJoin> Joins { get; }
 }
 
 public interface IBindingInAble
 {
-    public IEnumerable<IBind> Binds { get; set; }
+    IEnumerable<IBind> Binds { get; }
 }
 
 public interface IPredicable
 {
-    public IPredicate Predicate { get; set; }
+    IPredicate? Predicate { get; }
 }
 
 public interface IOrderable
 {
-    public IOrdering Ordering { get; set; }
+    IEnumerable<IOrdering> Orderings { get; }
 }
 
 public interface IAggrupable
 {
-    public IAggrupation Aggrupation { get; set; }
+    IAggrupation? Aggrupation { get; }
+}
+
+public interface ITopable
+{
+    ITop Top { get; }
+}
+
+public interface ITop { }
+public interface IAll : ITop { }
+public interface IOne : ITop { }
+public interface IFirst : ITop { }
+public interface ILast : ITop { }
+public interface IAtPosition : ITop
+{
+    int Position { get; }
+}
+public interface ITopByQuantity : ITop
+{
+    int Quantity { get; }
+}
+public interface ITopByPercentage : ITop
+{
+    double Percentage { get; }
+}
+
+public interface ILimitable
+{
+    ILimit? Limit { get; }
+}
+
+public interface ILimit
+{
+    int Quantity { get; }
+}
+
+public interface IOffsettable
+{
+    IOffset? Offset { get; }
+}
+
+public interface IOffset
+{
+    int Quantity { get; }
+}
+
+public interface IPageable
+{
+    IPagination? Pagination { get; }
+}
+
+public interface IPagination
+{
+    int Page { get; }
+    int Size { get; }
 }
 
 public interface ISelectable
@@ -200,44 +253,17 @@ public interface ITupleSelectionAtom
 public interface ITupleSelectionExpression : ITupleSelectionAtom
 {
     IExpression Expression { get; }
-
-    IObjectPath? OutputPath { get; }
+    INamePath? OutputPath { get; }
 }
 
 public interface ITupleSelectionAssignment : ITupleSelectionAtom
 {
-    IObjectPath OutputPath { get; }
-
+    INamePath OutputPath { get; }
     IExpression Expression { get; }
-}
-
-public interface IExpression : ISyntaxElement
-{
 }
 
 public interface IMapSelection : ISelection
 {
-}
-
-public interface IObjectPath : IReference
-{
-    public IObjectPathValue Value { get; }
-
-    public IObjectPath? Child { get; }
-}
-
-public interface IObjectPathValue
-{
-}
-
-public interface IObjectIdentifier : IObjectPathValue
-{
-    public string Name { get; }
-}
-
-public interface IObjectWildcard : IObjectPathValue
-{
-    public int Level { get; }
 }
 
 public interface IBind
@@ -262,4 +288,13 @@ public interface IAggrupation
 
 public interface IOrdering
 {
+    IExpression Expression { get; }
+    
+    OrderDirection Direction { get; }
+}
+
+public enum OrderDirection
+{
+    Ascending,
+    Descending,
 }

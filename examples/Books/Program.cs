@@ -5,7 +5,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 var connectionStrings = new
 {
-    BookDbContext = builder.Configuration.GetConnectionString(nameof(BookDbContext)),
+    BookDbContext = builder.Configuration.GetConnectionString(nameof(BookDbContext))
+        ?? throw new Exception("BookDbContext connection string is not configured"),
 };
 
 builder.Services.AddDbContext<BookDbContext>(b => b.UseNpgsql(connectionStrings.BookDbContext));
