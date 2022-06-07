@@ -22,17 +22,18 @@ public static class SqlFaceAspNetCoreExtensions
 
         Func<IServiceProvider, ISqlFaceContainer<TTopic>> containerFactory = (serviceProvider) =>
         {
-            var services = new ServiceCollection();
-            services.AddMemoryCache();
-            services.AddTransient((_) => contextFactory());
-            services.AddTransient((_) => serviceProvider.GetRequiredService<IMemoryCache>());
-            services.AddTransient<Func<IServiceScopeFactory>>((_) => () => serviceProvider.GetRequiredService<IServiceScopeFactory>());
-            services.AddTransient<Func<IServiceProvider>>((_) => () => serviceProvider);
-            services.AddTransient<ISqlFaceLinqFactory, SqlFaceLinqFactory>();
-            services.AddTransient<ISelectQueryPipeFactory, SelectQueryPipeFactory>();
-            services.AddTransient<ISourceExecutor, SourceExecutor>();
-            services.AddTransient<ISqlFaceParser, SqlFaceParser>();
-            services.AddTransient<ISqlFaceRunner, SqlFaceRunner>();
+            var services = new ServiceCollection()
+                .AddMemoryCache()
+                .AddTransient((_) => contextFactory())
+                .AddTransient((_) => serviceProvider.GetRequiredService<IMemoryCache>())
+                .AddTransient<Func<IServiceScopeFactory>>((_) => () => serviceProvider.GetRequiredService<IServiceScopeFactory>())
+                .AddTransient<Func<IServiceProvider>>((_) => () => serviceProvider)
+                .AddTransient<ISqlFaceLinqFactory, SqlFaceLinqFactory>()
+                .AddTransient<ISelectQueryPipeFactory, SelectQueryPipeFactory>()
+                .AddTransient<ISourceExecutor, SourceExecutor>()
+                .AddTransient<ISqlFaceParser, SqlFaceParser>()
+                .AddTransient<ISqlFaceRunner, SqlFaceRunner>();
+            
             return new SqlFaceContainer<TTopic>(services);
         };
         

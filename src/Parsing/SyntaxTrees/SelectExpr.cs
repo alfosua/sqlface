@@ -1,6 +1,6 @@
 ﻿namespace SqlFace.Parsing.SyntaxTrees;
 
-public class SyntaxTree : ISyntaxTree
+public record SyntaxTree : ISyntaxTree
 {
     public SyntaxTree(IEnumerable<IStatement> statements)
     {
@@ -11,6 +11,22 @@ public class SyntaxTree : ISyntaxTree
     public ISecrets? Secrets { get; set; }
     public IEnumerable<IStatement> Statements { get; set; }
 }
+
+public record StringLiteral(string Value) : IStringLiteral;
+public record BooleanLiteral(bool Value) : IBooleanLiteral;
+public record IntegerLiteral(int Value) : IIntegerLiteral;
+public record FloatingPointLiteral(double Value) : IFloatingPointLiteral;
+
+public record AdditionOperator(IExpression Left, IExpression Right) : IAdditionOperator { }
+public record SubtractionOperator(IExpression Left, IExpression Right) : ISubtractionOperator { }
+public record MultiplicationOperator(IExpression Left, IExpression Right) : IMultiplicationOperator { }
+public record DivisionOperator(IExpression Left, IExpression Right) : IDivisionOperator { }
+public record ModuloOperator(IExpression Left, IExpression Right) : IModuloOperator { }
+public record NegationOperator(IExpression Target) : INegationOperator { }
+
+public record NotOperator(IExpression Target) : INotOperator { }
+public record AndOperator(IExpression Left, IExpression Right) : IAndOperator { }
+public record OrOperator(IExpression Left, IExpression Right) : IOrOperator { }
 
 public class SelectQuery : ISelectQuery
 {

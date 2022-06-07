@@ -373,6 +373,7 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
 {
     private readonly IReadOnlyCollection<ISqlFaceObjectProperty> _sourceProps;
     private readonly ISelectQueryVisitor _selectQueryVisitor;
+    private List<PropertyProjection>? _projections;
 
     public PropertyProjectionAnalysis(ISourceVisitor sourceVisitor, ISelectQueryVisitor selectQueryVisitor)
     {
@@ -382,10 +383,11 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
 
     public IEnumerator<PropertyProjection> GetEnumerator()
     {
-        var columns = ExtractCommonData(_selectQueryVisitor.Value.Selection)
-            .SelectMany(x => CreateProjectionsFrom(x.OutputPath, x.Expression));
+        _projections ??= ExtractCommonData(_selectQueryVisitor.Value.Selection)
+            .SelectMany(x => CreateProjectionsFrom(x.OutputPath, x.Expression))
+            .ToList();
 
-        return columns.GetEnumerator();
+        return _projections.GetEnumerator();
     }
 
     IEnumerator IEnumerable.GetEnumerator()
@@ -443,10 +445,39 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
 
     private StringBuilder TranslateExpressionToCSharpCode(IExpression expression) => expression switch
     {
+        IOperator o => o  switch
+        {
+            IAdditionOperator add => new StringBuilder()
+                .AppendFormat("{0} + {1}", TranslateExpressionToCSharpCode(add.Left), TranslateExpressionToCSharpCode(add.Right)),
+
+            ISubtractionOperator add => new StringBuilder()
+                .AppendFormat("{0} - {1}", TranslateExpressionToCSharpCode(add.Left), TranslateExpressionToCSharpCode(add.Right)),
+            
+            IMultiplicationOperator add => new StringBuilder()
+                .AppendFormat("{0} * {1}", TranslateExpressionToCSharpCode(add.Left), TranslateExpressionToCSharpCode(add.Right)),
+
+            IDivisionOperator add => new StringBuilder()
+                .AppendFormat("{0} / {1}", TranslateExpressionToCSharpCode(add.Left), TranslateExpressionToCSharpCode(add.Right)),
+
+            IModuloOperator add => new StringBuilder()
+                .AppendFormat("{0} % {1}", TranslateExpressionToCSharpCode(add.Left), TranslateExpressionToCSharpCode(add.Right)),
+
+            _ => throw new NotImplementedException($"Operator `{o.GetType().FullName}` is not supported"),
+        },
+
+        ILiteral l => l switch
+        {
+            IStringLiteral sl => new StringBuilder().AppendFormat("\"{0}\"", sl.Value),
+            IBooleanLiteral bl => new StringBuilder().AppendFormat("{0}", bl.Value ? "true" : "false"),
+            IIntegerLiteral il => new StringBuilder().AppendFormat("{0}", il.Value),
+            IFloatingPointLiteral fpl => new StringBuilder().AppendFormat("{0}", fpl.Value),
+            _ => throw new NotImplementedException($"Literal `{l.GetType().FullName}` is not supported"),
+        },
+        
         INamePath np => _sourceProps
             .Where(x => x.Identifier.Name == np.GetPathString())
             .Take(1)
-            .Select(x => new StringBuilder().AppendFormat("x.{0}", x.Identifier.Name))
+            .Select(x => new StringBuilder().AppendFormat("x.{0}", x.Property.Name))
             .FirstOrDefault()
             ?? throw new InvalidOperationException("Reference is out of context"),
 

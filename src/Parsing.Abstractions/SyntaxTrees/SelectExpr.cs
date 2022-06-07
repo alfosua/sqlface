@@ -25,8 +25,8 @@ public interface ILiteral<T> : ILiteral
 public interface IStringLiteral : ILiteral<string> { }
 public interface IBooleanLiteral : ILiteral<bool> { }
 public interface INumberLiteral<T> : ILiteral<T> { }
-public interface IIntegerLiteral<T> : INumberLiteral<int> { }
-public interface IFloatingPointLiteral<T> : INumberLiteral<double> { }
+public interface IIntegerLiteral : INumberLiteral<int> { }
+public interface IFloatingPointLiteral : INumberLiteral<double> { }
 
 public interface IVariableReference : IExpression
 {
