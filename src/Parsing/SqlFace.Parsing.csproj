@@ -8,10 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Nom" Version="0.4.0" />
+    <!--<PackageReference Include="Nom" Version="0.4.0" />-->
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\nom-dotnet\src\Nom\Nom.csproj" />
     <ProjectReference Include="..\Parsing.Abstractions\SqlFace.Parsing.Abstractions.csproj" />
   </ItemGroup>
 
