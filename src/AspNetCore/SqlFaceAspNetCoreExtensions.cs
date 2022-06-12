@@ -6,6 +6,8 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using SqlFace.Core;
 using SqlFace.Parsing;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SqlFace.AspNetCore;
 

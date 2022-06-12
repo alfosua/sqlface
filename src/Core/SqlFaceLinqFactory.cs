@@ -461,7 +461,7 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
 
             IModuloOperator add => new StringBuilder()
                 .AppendFormat("{0} % {1}", TranslateExpressionToCSharpCode(add.Left), TranslateExpressionToCSharpCode(add.Right)),
-
+            
             _ => throw new NotImplementedException($"Operator `{o.GetType().FullName}` is not supported"),
         },
 
@@ -473,6 +473,10 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
             IFloatingPointLiteral fpl => new StringBuilder().AppendFormat("{0}", fpl.Value),
             _ => throw new NotImplementedException($"Literal `{l.GetType().FullName}` is not supported"),
         },
+
+        IPipeline p => TranslatePipelineToCSharpcode(p),
+
+        IInvocation inv => TranslateInvocationToCSharpcode(inv.Target, inv.Parameters.Select(x => x.Value).ToList()),
         
         INamePath np => _sourceProps
             .Where(x => x.Identifier.Name == np.GetPathString())
@@ -483,6 +487,23 @@ public class PropertyProjectionAnalysis : IEnumerable<PropertyProjection>
 
         _ => throw new NotImplementedException("Expression is not supported"),
     };
+
+    private StringBuilder TranslateInvocationToCSharpcode(IExpression target, ICollection<IExpression> parameters) => target switch
+    {
+        INamePath np => string.Join('.', np.Sequence.Select(x => x.Identifier)) switch
+        {
+            "square" when parameters.Count == 1 => new StringBuilder().AppendFormat("({0} * {0})", TranslateExpressionToCSharpCode(parameters.First())),
+
+            var fullId => throw new NotImplementedException($"Invocation target `{fullId}` is not recognized"),
+        },
+
+        _ => throw new NotImplementedException($"Invocation target `{target.GetType().FullName}` is not supported"),
+    };
+
+    private StringBuilder TranslatePipelineToCSharpcode(IPipeline pipeline)
+    {
+        return TranslateInvocationToCSharpcode(pipeline.Curry, new[] { pipeline.Value });
+    }
 }
 
 public record PropertyProjection(string CSharpTypeName, string OutputName, StringBuilder ExpressionCode);

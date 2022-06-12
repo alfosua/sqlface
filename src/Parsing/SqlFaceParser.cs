@@ -29,24 +29,50 @@ public class SqlFaceParser : ISqlFaceParser
     }
 }
 
+public class ExpressionParserBuilder
+{
+    private readonly List<IParser<StringParsable, IExpression>> _parsers = new();
+    
+    public IParser<StringParsable, IExpression> Build()
+    {
+        return Alternation.Create(_parsers);
+    }
+    
+    public ExpressionParserBuilder AddParser<T>(IParser<StringParsable, T> parser)
+        where T : IExpression
+    {
+        _parsers.Add(CastToExpression(parser));
+        return this;
+    }
+
+    public ExpressionParserBuilder AddArithmetical() => AddParser(new ArithmeticExpressionParser()).AddParser(new ArithmeticTermParser());
+    public ExpressionParserBuilder AddPipeline() => AddParser(new PipelineParser());
+    public ExpressionParserBuilder AddInvocation() => AddParser(new InvocationParser());
+    public ExpressionParserBuilder AddLiteral() => AddParser(new LiteralParser());
+    public ExpressionParserBuilder AddNamePath() => AddParser(new NamePathParser());
+    public ExpressionParserBuilder AddWildcard() => AddParser(new WildcardParser());
+
+    private IParser<StringParsable, IExpression> CastToExpression<T>(IParser<StringParsable, T> parser)
+        where T : IExpression
+    {
+        return Map.Create(parser, x => x as IExpression);
+    }
+}
+
 public class ExpressionParser : IParser<StringParsable, IExpression>
 {
     public IResult<StringParsable, IExpression> Parse(StringParsable input)
     {
-        var arithmeticMap = AsExpression(new ArithmeticExpressionParser());
-        var literalMap = AsExpression(new LiteralParser());
-        var namePathMap = AsExpression(new NamePathParser());
-        var wildcardMap = AsExpression(new WildcardParser());
+        var expression = new ExpressionParserBuilder()
+            .AddArithmetical()
+            .AddPipeline()
+            .AddInvocation()
+            .AddLiteral()
+            .AddNamePath()
+            .AddWildcard()
+            .Build();
 
-        var alternation = Alternation.Create(new[] { arithmeticMap, literalMap, wildcardMap, namePathMap });
-
-        return alternation.Parse(input);
-    }
-
-    private IParser<StringParsable, IExpression> AsExpression<T>(IParser<StringParsable, T> parser)
-        where T : IExpression
-    {
-        return Map.Create(parser, x => x as IExpression);
+        return expression.Parse(input);
     }
 }
 
@@ -70,28 +96,146 @@ public class LiteralParser : IParser<StringParsable, ILiteral>
     }
 }
 
+public class InvocationParser : IParser<StringParsable, IInvocation>
+{
+    public IResult<StringParsable, IInvocation> Parse(StringParsable input)
+    {
+        var initial = Invokable().Parse(input);
+
+        var parameter = Parameter();
+        var parameterList = SeparatedListOrNone.Create(Utilities.Symbol(','), parameter);
+        var parameters = ParenthesisDelimited(parameterList);
+        
+        var rawData = FoldMany.Create(parameters, initial.Output, InvocationAggregation);
+        var dataMap = Map.Create(rawData, x => (IInvocation)x);
+        
+        return dataMap.Parse(initial.Remainder);
+    }
+
+    private IExpression InvocationAggregation(IExpression accumulation, ICollection<IInvocationParameter> nextParameters)
+        => new Invocation(accumulation, nextParameters);
+
+    private IParser<StringParsable, IInvocationParameter> Parameter()
+    {
+        return Alternation.Create(new[]
+        {
+            NamedParameter(),
+            PositionalParameter(),
+        });
+    }
+
+    private IParser<StringParsable, T> ParenthesisDelimited<T>(IParser<StringParsable, T> parser)
+    {
+        var leftParenthesis = Delimited.Create(MultispaceOrNone.Create(), Character.Create('('), MultispaceOrNone.Create());
+        var rightParenthesis = Preceded.Create(MultispaceOrNone.Create(), Character.Create(')'));
+        return Delimited.Create(leftParenthesis, parser, rightParenthesis);
+    }
+    
+    private IParser<StringParsable, IInvocationParameter> PositionalParameter()
+    {
+        return Map.Create(new ExpressionParser(), x => new InvocationParameter(x) as IInvocationParameter);
+    }
+
+    private IParser<StringParsable, IInvocationParameter> NamedParameter()
+    {
+        var rawData = SeparatedPair.Create(new NameItemParser(), Utilities.Symbol(':'), new ExpressionParser());
+        return Map.Create(rawData, NamedParameterMap);
+    }
+
+    private IInvocationParameter NamedParameterMap((INameItem Name, IExpression Expression) x)
+        => new InvocationParameter(x.Expression, x.Name);
+    
+    public IParser<StringParsable, IExpression> Invokable()
+    {
+        return new ExpressionParserBuilder()
+            .AddLiteral()
+            .AddNamePath()
+            .AddWildcard()
+            .Build();
+    }
+}
+
+public class PipelineParser : IParser<StringParsable, IPipeline>
+{
+    public IResult<StringParsable, IPipeline> Parse(StringParsable input)
+    {
+        var initial = Pipelineable().Parse(input);
+
+        var curriedInvocation = Preceded.Create(Utilities.Symbols("|>"), Pipe());
+
+        var fold = FoldMany.Create(curriedInvocation, initial.Output, (accum, invocation) => new Pipeline(accum, invocation));
+        var map = Map.Create(fold, x => (IPipeline)x);
+
+        return map.Parse(initial.Remainder);
+    }
+
+    private IParser<StringParsable, IExpression> Pipelineable()
+    {
+        return new ExpressionParserBuilder()
+            .AddInvocation()
+            .AddLiteral()
+            .AddNamePath()
+            .AddWildcard()
+            .Build();
+    }
+
+    private IParser<StringParsable, IExpression> Pipe()
+    {
+        return new ExpressionParserBuilder()
+            .AddLiteral()
+            .AddNamePath()
+            .AddWildcard()
+            .Build();
+    }
+}
+
 public class ArithmeticFactorParser : IParser<StringParsable, IExpression>
 {
     public IResult<StringParsable, IExpression> Parse(StringParsable input)
     {
-        var literalMap = AsExpression(new LiteralParser());
-        var namePathMap = AsExpression(new NamePathParser());
-        var wildcardMap = AsExpression(new WildcardParser());
+        var expression = new ExpressionParserBuilder()
+            .AddPipeline()
+            .AddInvocation()
+            .AddLiteral()
+            .AddNamePath()
+            .AddWildcard()
+            .Build();
 
-        var alternation = Alternation.Create(new[] { literalMap, wildcardMap, namePathMap });
-
-        return alternation.Parse(input);
+        return expression.Parse(input);
     }
+}
 
-    private IParser<StringParsable, IExpression> AsExpression<T>(IParser<StringParsable, T> parser)
-        where T : IExpression
+public class ArithmeticTermOrNoneParser : IParser<StringParsable, IExpression>
+{
+    public IResult<StringParsable, IExpression> Parse(StringParsable input)
     {
-        return Map.Create(parser, x => x as IExpression);
+        var parser = new ArithmeticTermBaseParser((rightHandSides, initial, aggregation) =>
+            FoldManyOrNone.Create(rightHandSides, initial, aggregation));
+
+        return parser.Parse(input);
     }
 }
 
 public class ArithmeticTermParser : IParser<StringParsable, IExpression>
 {
+    public IResult<StringParsable, IExpression> Parse(StringParsable input)
+    {
+        var parser = new ArithmeticTermBaseParser((rightHandSides, initial, aggregation) =>
+            FoldMany.Create(rightHandSides, initial, aggregation));
+
+        return parser.Parse(input);
+    }
+}
+
+public class ArithmeticTermBaseParser : IParser<StringParsable, IExpression>
+{
+    public ArithmeticTermBaseParser(Func<IParser<StringParsable, (StringParsable, IExpression)>, IExpression, Func<IExpression, (StringParsable, IExpression), IExpression>, IParser<StringParsable, IExpression>> foldParserCallback)
+    {
+        FoldParserCallback = foldParserCallback;
+    }
+
+    public Func<IParser<StringParsable, (StringParsable, IExpression)>, IExpression, Func<IExpression, (StringParsable, IExpression), IExpression>, IParser<StringParsable, IExpression>> FoldParserCallback { get; set; }
+
     public IResult<StringParsable, IExpression> Parse(StringParsable input)
     {
         var times = Utilities.Symbol('*');
@@ -102,16 +246,18 @@ public class ArithmeticTermParser : IParser<StringParsable, IExpression>
         var initial = new ArithmeticFactorParser().Parse(input);
         var rightHandSides = Pair.Create(symbol, new ArithmeticFactorParser());
 
-        var fold = FoldManyOrNone.Create(rightHandSides, initial.Output, (accum, next) => (string)next.Item1 switch
-        {
-            "*" => new MultiplicationOperator(accum, next.Item2),
-            "/" => new DivisionOperator(accum, next.Item2),
-            "%" => new ModuloOperator(accum, next.Item2),
-            _ => throw new Exception("Invalid passed operator"),
-        });
+        var fold = FoldParserCallback(rightHandSides, initial.Output, Aggregation);
 
         return fold.Parse(initial.Remainder);
     }
+
+    private IExpression Aggregation(IExpression accum, (StringParsable op, IExpression expr) next) => (string)next.op switch
+    {
+        "*" => new MultiplicationOperator(accum, next.expr),
+        "/" => new DivisionOperator(accum, next.expr),
+        "%" => new ModuloOperator(accum, next.expr),
+        _ => throw new Exception("Invalid passed operator"),
+    };
 }
 
 public class ArithmeticExpressionParser : IParser<StringParsable, IExpression>
@@ -122,10 +268,10 @@ public class ArithmeticExpressionParser : IParser<StringParsable, IExpression>
         var minus = Utilities.Symbol('-');
         var symbol = Alternation.Create(new[] { plus, minus });
         
-        var initial = new ArithmeticTermParser().Parse(input);
-        var rightHandSides = Pair.Create(symbol, new ArithmeticTermParser());
+        var initial = new ArithmeticTermOrNoneParser().Parse(input);
+        var rightHandSides = Pair.Create(symbol, new ArithmeticTermOrNoneParser());
 
-        var fold = FoldManyOrNone.Create(rightHandSides, initial.Output, Aggregation);
+        var fold = FoldMany.Create(rightHandSides, initial.Output, Aggregation);
 
         return fold.Parse(initial.Remainder);
     }
@@ -142,15 +288,23 @@ public class NamePathParser : IParser<StringParsable, INamePath>
 {
     public IResult<StringParsable, INamePath> Parse(StringParsable input)
     {
+        var namePathList = SeparatedList.Create(Utilities.Symbol('.'), new NameItemParser());
+        var namePathMap = Map.Create(namePathList, x => new NamePath(x) as INamePath);
+
+        return namePathMap.Parse(input);
+    }
+}
+
+public class NameItemParser : IParser<StringParsable, INameItem>
+{
+    public IResult<StringParsable, INameItem> Parse(StringParsable input)
+    {
         var nameItemRawData = Pair.Create(SatisfiedBy.Create(c => char.IsLetter(c) || c == '_'), AlphanumericsOrNone.Create());
         var nameItemMap = Map.Create(
             parser: nameItemRawData,
             mapper: x => new NameItem(x.Item1 + x.Item2) as INameItem);
 
-        var namePathList = SeparatedList.Create(Utilities.Symbol('.'), nameItemMap);
-        var namePathMap = Map.Create(namePathList, x => new NamePath(x) as INamePath);
-
-        return namePathMap.Parse(input);
+        return nameItemMap.Parse(input);
     }
 }
 

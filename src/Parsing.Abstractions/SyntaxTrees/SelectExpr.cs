@@ -28,6 +28,22 @@ public interface INumberLiteral<T> : ILiteral<T> { }
 public interface IIntegerLiteral : INumberLiteral<int> { }
 public interface IFloatingPointLiteral : INumberLiteral<double> { }
 
+public interface IInvocation : IExpression
+{
+    IExpression Target { get; }
+    ICollection<IInvocationParameter> Parameters { get; }
+}
+public interface IInvocationParameter
+{
+    IExpression Value { get; }
+    INameItem? Name { get; }
+}
+public interface IPipeline : IExpression
+{
+    IExpression Value { get; }
+    IExpression Curry { get; }
+}
+
 public interface IVariableReference : IExpression
 {
     INamePath NamePath { get; }

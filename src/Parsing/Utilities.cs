@@ -9,6 +9,12 @@ namespace SqlFace.Parsing;
 
 public static class Utilities
 {
+    public static IParser<StringParsable, T> ParenthesisDelimited<T>(IParser<StringParsable, T> parser)
+    {
+        var delimitation = Delimited.Create(Symbol('('), parser, Symbol(')'));
+        return delimitation;
+    }
+
     public static IParser<StringParsable, StringParsable> Quote()
     {
         return Alternation.Create(new[] { Character.Create('\''), Character.Create('"') });
@@ -18,6 +24,13 @@ public static class Utilities
     {
         var multispaceOrNone = MultispaceOrNone.Create();
         var symbol = Character.Create(symbolChar);
+        return Delimited.Create(multispaceOrNone, symbol, multispaceOrNone);
+    }
+
+    public static IParser<StringParsable, ICollection<StringParsable>> Symbols(string symbols)
+    {
+        var multispaceOrNone = MultispaceOrNone.Create();
+        var symbol = Sequence.Create(symbols.Select(Character.Create));
         return Delimited.Create(multispaceOrNone, symbol, multispaceOrNone);
     }
 

@@ -28,6 +28,10 @@ public record NotOperator(IExpression Target) : INotOperator { }
 public record AndOperator(IExpression Left, IExpression Right) : IAndOperator { }
 public record OrOperator(IExpression Left, IExpression Right) : IOrOperator { }
 
+public record Invocation(IExpression Target, ICollection<IInvocationParameter> Parameters) : IInvocation;
+public record InvocationParameter(IExpression Value, INameItem? Name = null) : IInvocationParameter;
+public record Pipeline(IExpression Value, IExpression Curry) : IPipeline;
+
 public class SelectQuery : ISelectQuery
 {
     public SelectQuery(ISelectable selectable, ISelection selection)
