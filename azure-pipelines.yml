@@ -1,0 +1,25 @@
+name: $(Year).$(Month).$(Day)$(Rev:.r)
+
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  solution: '**/*.sln'
+  buildConfiguration: 'Release'
+
+steps:
+- task: NuGetAuthenticate@0
+- task: DotNetCoreCLI@2
+  displayName: 'DotNet Pack'
+  inputs:
+    command: pack
+    versioningScheme: byBuildNumber
+- task: NuGetCommand@2
+  displayName: 'NuGet push'
+  inputs:
+    command: push
+    publishVstsFeed: 'SqlFace/alfosuag'
+    allowPackageConflicts: true
